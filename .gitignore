@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Trọng số ONNX: tự sinh từ .pth ở lần chạy đầu (xem code/README.md)
+code/weights/*.onnx
+code/weights/*.onnx.tmp
+
+# Ảnh/video và số liệu do app sinh ra khi chạy thử
+output/_bench_*.mp4
+output/demo_frame.png
+
+# Hệ điều hành / trình soạn thảo
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -150,6 +150,7 @@
           <div class="kpi"><span>Mật độ (người/m²)</span><b id="live-density">–</b></div>
         </div>
         <div id="live-level"></div>
+        <p class="muted" id="live-stats">Đang chờ kết quả suy luận đầu tiên…</p>
         <div class="chart-box">
           <div class="chart-head"><span>Số người theo thời gian</span><span class="legend"><i></i>đo được <i class="sm"></i>làm trơn</span></div>
           <canvas id="chart" height="180"></canvas>
@@ -214,13 +215,22 @@
         <small class="muted" id="s-thr"></small>
       </div>
       <label class="switch"><input type="checkbox" id="s-blur"><span class="track"></span>Chế độ riêng tư (làm mờ ảnh hiển thị)</label>
-      <label class="field"><span>Độ phân giải xử lý (cạnh dài) <output id="o-maxside"></output></span>
-        <input type="range" id="s-maxside" min="0" max="3" step="1"></label>
+      <label class="field"><span>Độ phân giải suy luận (cạnh dài) <output id="o-maxside"></output></span>
+        <input type="range" id="s-maxside" min="0" max="4" step="1"></label>
+      <small class="muted">512px là kích thước ô cắt lúc huấn luyện — số đếm chính xác nhất.
+        Hạ xuống để nhanh hơn (đổi lại: người nhỏ hơn nên dễ đếm thiếu).</small>
+
+      <h4>Phát trực tiếp <em>(video)</em></h4>
+      <label class="field"><span>FPS hiển thị mục tiêu <output id="o-fps"></output></span>
+        <input type="range" id="s-fps" min="5" max="30" step="1"></label>
+      <small class="muted">Khung hình phát đều ở mức này; bản đồ nhiệt cập nhật mỗi khi CSRNet tính xong
+        (chậm hơn, tùy CPU/GPU) nên video không còn bị giật theo tốc độ suy luận.</small>
 
       <h4>Phát hiện bất thường <em>(video)</em></h4>
       <label class="field"><span>Phân tích mỗi <output id="o-stride"></output></span>
-        <input type="range" id="s-stride" min="0.2" max="5" step="0.2"></label>
-      <label class="field"><span>Ngưỡng tăng đột biến <output id="o-surge"></output></span>
+        <input type="range" id="s-stride" min="0" max="5" step="0.2"></label>
+      <small class="muted">Khoảng cách giữa hai lần chạy CSRNet (0 = liền tay, luôn dùng khung mới nhất).
+        Tăng lên để giảm tải CPU; khung hình vẫn phát đủ FPS mục tiêu.</small>      <label class="field"><span>Ngưỡng tăng đột biến <output id="o-surge"></output></span>
         <input type="range" id="s-surge" min="10" max="200" step="10"></label>
       <label class="field"><span>Cửa sổ tăng đột biến <output id="o-window"></output></span>
         <input type="range" id="s-window" min="2" max="60" step="1"></label>

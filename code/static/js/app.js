@@ -9,8 +9,9 @@
   let STATUS = { ok: false, levels: [], thresholds: {} };
 
   // ------------------------------------------------------------ Cấu hình (lưu trên trình duyệt)
-  const MAX_SIDES = [512, 768, 1024, 1280];
-  const DEFAULTS = { area: 100, crowd_type: "di chuyển", blur: true, max_side: 1024, stride: 1, surge_ratio: 50, surge_window: 10, min_persist: 3 };
+  const MAX_SIDES = [384, 512, 640, 768, 1024];   // mặc định 512 = ô cắt lúc huấn luyện
+  const DEFAULTS = { area: 100, crowd_type: "di chuyển", blur: true, max_side: 512, fps: 15,
+    stride: 0.5, surge_ratio: 50, surge_window: 10, min_persist: 3 };
   let S = { ...DEFAULTS };
   try { Object.assign(S, JSON.parse(localStorage.getItem("crowd-settings") || "{}")); } catch (_) { /* bỏ qua */ }
   const save = () => { try { localStorage.setItem("crowd-settings", JSON.stringify(S)); } catch (_) { /* bỏ qua */ } };
@@ -18,7 +19,8 @@
   function bindSettings() {
     const area = $("#s-area"), blur = $("#s-blur");
     const ranges = [
-      ["#s-stride", "stride", "#o-stride", (v) => `${fmt(v, 1)} giây`],
+      ["#s-fps", "fps", "#o-fps", (v) => `${v} FPS`],
+      ["#s-stride", "stride", "#o-stride", (v) => v === 0 ? "liền tay" : `${fmt(v, 1)} giây`],
       ["#s-surge", "surge_ratio", "#o-surge", (v) => `${v}%`],
       ["#s-window", "surge_window", "#o-window", (v) => `${v} giây`],
       ["#s-persist", "min_persist", "#o-persist", (v) => `${v} lần`],
@@ -38,8 +40,12 @@
       show();
     }
     const ms = $("#s-maxside");
-    ms.value = Math.max(0, MAX_SIDES.indexOf(S.max_side));
-    const showMs = () => { S.max_side = MAX_SIDES[ms.value]; $("#o-maxside").textContent = `${S.max_side}px`; };
+    ms.max = String(MAX_SIDES.length - 1);
+    ms.value = Math.max(0, MAX_SIDES.indexOf(Number(S.max_side)));
+    const showMs = () => {
+      S.max_side = MAX_SIDES[Number(ms.value)];
+      $("#o-maxside").textContent = `${S.max_side}px`;
+    };
     ms.addEventListener("input", () => { showMs(); save(); });
     showMs();
     $$("#s-type button").forEach((b) => b.addEventListener("click", () => { S.crowd_type = b.dataset.type; save(); syncType(); }));
@@ -192,8 +198,14 @@
 
     $("#vid-loading-text").textContent = "Đang phân tích…";
     const es = new EventSource(`/api/jobs/${id}/events`);
-    job = { id, es };
-    es.addEventListener("start", () => { $("#live").hidden = false; });
+    job = { id, es, t0: performance.now(), frames: 0, info: null };
+    es.addEventListener("start", (e) => {
+      job.info = JSON.parse(e.data);
+      $("#live").hidden = false;
+      const i = job.info;
+      $("#live-stats").textContent = `Mục tiêu ${fmt(i.target_fps)} FPS · suy luận ${i.infer_ms ?? "?"} ms/lần` +
+        `${i.backend ? ` (${i.backend.toUpperCase()})` : ""} · cạnh dài ${i.max_side}px`;
+    });
     es.addEventListener("tick", (e) => onTick(JSON.parse(e.data)));
     es.addEventListener("done", (e) => finish(JSON.parse(e.data)));
     es.addEventListener("fail", (e) => { fail(JSON.parse(e.data).error); finish(null); });
@@ -207,15 +219,27 @@
 
   function onTick(d) {
     $("#live").hidden = false;
-    rows.push(d);
     const L = STATUS.levels;
-    for (const ev of d.events) logRows.push({ t: d.t, level: d.level, text: ev });
-    $("#live-frame").src = d.frame;
+    // mỗi tick là một khung hình phát đi; chỉ ghi số liệu khi có kết quả suy luận mới
+    job.frames += 1;
+    if (d.count != null) {
+      rows.push(d);
+      for (const ev of d.events) logRows.push({ t: d.t, level: d.level, text: ev });
+    }
+    $("#live-frame").src = d.frame || $("#live-frame").src;
     $("#live-caption").textContent = `t = ${fmt(d.t, 1)}s`;
-    $("#live-count").textContent = fmt(d.count);
-    $("#live-density").textContent = fmt(d.density, 2);
-    $("#live-level").innerHTML = levelCard(d.level, d.surge ? "⚠ Tăng đột biến!" : "");
+    if (d.count != null) {
+      $("#live-count").textContent = fmt(d.count);
+      $("#live-density").textContent = fmt(d.density, 2);
+      $("#live-level").innerHTML = levelCard(d.level, d.surge ? "⚠ Tăng đột biến!" : "");
+    }
     $("#live-progress span").style.width = d.progress == null ? "100%" : `${(d.progress * 100).toFixed(1)}%`;
+    const el = performance.now() - job.t0;
+    const shownFps = el > 500 ? (job.frames * 1000) / el : 0;
+    $("#live-stats").textContent =
+      `Hiển thị ${fmt(shownFps, 1)} FPS` +
+      (d.infer_ms ? ` · suy luận ${fmt(d.infer_ms)} ms/lần (${fmt(d.infer_fps, 1)} FPS)` : "") +
+      (d.max_side ? ` · cạnh dài ${d.max_side}px` : "");
     drawChart();
     if (d.events.length && L[d.level]) toast(`${d.events[d.events.length - 1]}`);
   }
@@ -232,7 +256,9 @@
     $("#log-empty").hidden = logRows.length > 0;
     $(".log").hidden = logRows.length === 0;
     if (summary) {
-      $("#summary").textContent = `${summary.samples} lần đo · tối đa ${fmt(summary.max_count)} người · mức cao nhất ${L[summary.max_level].name}${summary.stopped ? " · đã dừng" : ""}`;
+      const fps = summary.display_fps ? ` · ${fmt(summary.display_fps, 1)} FPS hiển thị` : "";
+      const inf = summary.infer_ms ? ` · suy luận ${fmt(summary.infer_ms)} ms/lần` : "";
+      $("#summary").textContent = `${summary.samples} lần đo · tối đa ${fmt(summary.max_count)} người · mức cao nhất ${L[summary.max_level].name}${fps}${inf}${summary.stopped ? " · đã dừng" : ""}`;
     }
     $("#csv-btn").disabled = rows.length === 0;
   }
