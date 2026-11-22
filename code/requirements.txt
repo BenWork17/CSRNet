@@ -1,10 +1,12 @@
 torch>=2.1
 torchvision>=0.16
+onnxruntime>=1.17  # suy luận video nhanh hơn torch ~1,5–2 lần trên CPU
 opencv-python>=4.8
 numpy
 scipy
 matplotlib
 pandas
 flask>=3.0
+ultralytics==8.3.228
 streamlit>=1.32  # chỉ cần cho app.py cũ
 kagglehub

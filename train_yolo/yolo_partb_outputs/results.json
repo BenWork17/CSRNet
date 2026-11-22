@@ -1,0 +1,111 @@
+{
+  "dataset": "ShanghaiTech Part B",
+  "dataset_reference": "tthien/shanghaitech/versions/1",
+  "splits": {
+    "train": 360,
+    "val": 40,
+    "test": 316
+  },
+  "cfg": {
+    "model": "yolo11s.pt",
+    "epochs": 150,
+    "batch": 4,
+    "imgsz": 1024,
+    "workers": 2,
+    "seed": 42,
+    "val_ratio": 0.1,
+    "eval_every": 5,
+    "iou": 0.65,
+    "max_det": 1200,
+    "conf_grid": [
+      0.03,
+      0.05,
+      0.08,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.4,
+      0.5,
+      0.6
+    ],
+    "box_neighbor_factor": 0.65,
+    "box_min_px": 8.0,
+    "box_max_px": 40.0
+  },
+  "ultralytics_version": "8.3.228",
+  "torch_version": "2.14.1+cu130",
+  "gpu": "Tesla T4",
+  "training_minutes": 66.17647648215001,
+  "selected_on_validation": {
+    "epoch": 130,
+    "confidence": 0.2,
+    "mae": 8.65,
+    "rmse": 12.529964086141668,
+    "mean_signed_error": -0.95
+  },
+  "test_confidence": 0.2,
+  "test_mae": 8.395569620253164,
+  "test_rmse": 14.347517758232076,
+  "yolo_test": {
+    "mae": 8.395569620253164,
+    "rmse": 14.347517758232076,
+    "mean_signed_error": 1.4082278481012658,
+    "images_reaching_max_det_at_score_floor": 5,
+    "preprocess_inference_postprocess_ms_per_image_batch_1": 16.38681720575583
+  },
+  "csrnet_saved": {
+    "source": "output/results.json",
+    "best_epoch": 116,
+    "val_mae": 10.77628308105469,
+    "mae": 9.553877901487713,
+    "rmse": 14.87239002722598,
+    "n_test": 316,
+    "gpu": "Tesla T4"
+  },
+  "csrnet_recomputed": null,
+  "yolo_minus_csrnet_saved": {
+    "mae": -1.1583082812345484,
+    "rmse": -0.5248722689939047
+  },
+  "paired_bootstrap_mae_yolo_minus_csrnet_recomputed_95pct": null,
+  "by_count": [
+    {
+      "group_gt": "0–49",
+      "n_test": 60,
+      "yolo_mae": 2.15,
+      "yolo_rmse": 2.7658633371878665,
+      "yolo_mean_signed_error": 0.5833333333333334,
+      "csrnet_saved_mae": 2.466479685465495,
+      "delta_mae_vs_csrnet_saved": -0.3164796854654952
+    },
+    {
+      "group_gt": "50–99",
+      "n_test": 109,
+      "yolo_mae": 4.605504587155964,
+      "yolo_rmse": 6.044179852696569,
+      "yolo_mean_signed_error": -0.8990825688073395,
+      "csrnet_saved_mae": 5.724936657826835,
+      "delta_mae_vs_csrnet_saved": -1.1194320706708716
+    },
+    {
+      "group_gt": "100–199",
+      "n_test": 97,
+      "yolo_mae": 9.577319587628866,
+      "yolo_rmse": 13.1066206611254,
+      "yolo_mean_signed_error": -0.3402061855670103,
+      "csrnet_saved_mae": 11.712048415351159,
+      "delta_mae_vs_csrnet_saved": -2.1347288277222933
+    },
+    {
+      "group_gt": "≥200",
+      "n_test": 50,
+      "yolo_mae": 21.86,
+      "yolo_rmse": 29.646247654635822,
+      "yolo_mean_signed_error": 10.82,
+      "csrnet_saved_mae": 22.218996875000002,
+      "delta_mae_vs_csrnet_saved": -0.35899687500000255
+    }
+  ]
+}

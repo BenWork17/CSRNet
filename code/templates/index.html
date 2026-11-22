@@ -3,235 +3,402 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Crowd Monitor</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐟</text></svg>">
+  <title>Crowd Monitor - Giám sát & Cảnh báo đám đông AI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👥</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-<div class="bgimage" aria-hidden="true"></div>
 
-<!-- Bộ lọc SVG: viền gợn sóng vẽ tay cho badge -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <filter id="nav-wobble">
-    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="3" result="n"/>
-    <feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G"/>
-  </filter>
-</svg>
+<!-- ============ THANH ĐIỀU HƯỚNG TRÊN CÙNG (GỌN GÀNG) ============ -->
+<header class="app-header">
+  <div class="header-left">
+    <div class="logo">
+      <span class="logo-icon">👁</span>
+      <div class="logo-text">
+        <span class="brand-title">CROWD MONITOR</span>
+        <span class="brand-sub">HỆ THỐNG GIÁM SÁT ĐÁM ĐÔNG AI</span>
+      </div>
+    </div>
+    <div class="mode-nav" id="navpill" role="tablist">
+      <button type="button" class="nav-tab" data-go="image" role="tab">Ảnh tĩnh</button>
+      <button type="button" class="nav-tab active" data-go="video" role="tab">Video / Camera</button>
+    </div>
+  </div>
 
-<!-- ============ Thanh liên hệ / trạng thái phía trên ============ -->
-<header class="topbar">
-  <a class="brand" href="#" data-go="image"><em>Crowd</em> Monitor</a>
-  <div class="topbar-right">
-    <span class="meta" id="meta"></span>
-    {% if contact_email %}
-    <button class="meta-link copy-email" data-email="{{ contact_email }}" type="button">Email</button>
-    {% endif %}
-    <span class="status-badge" id="status-badge"><span class="dot"></span><span id="status-text">Đang kết nối…</span></span>
+  <div class="header-right">
+    <div class="model-badge-box">
+      <label for="model-select" class="ctrl-label">Mô hình AI:</label>
+      <select id="model-select" class="select-sm" disabled>
+        <option value="csrnet">CSRNet (Mật độ)</option>
+        <option value="yolo">YOLO11s (Hộp đầu)</option>
+      </select>
+    </div>
+    <span class="status-pill" id="status-badge">
+      <span class="pulse-dot"></span>
+      <span id="status-text">Đang kết nối...</span>
+    </span>
+    <span class="meta-tag" id="meta">CUDA · FP32</span>
+    <button type="button" class="btn-icon" data-open-settings title="Cài đặt hệ thống" aria-label="Cài đặt">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      <span>Cấu hình</span>
+    </button>
   </div>
 </header>
 
-<main class="wrap">
-  <!-- ============ Hero ============ -->
-  <section class="hero">
-    <div class="eyebrow">CSRNet · Phát hiện đám đông bất thường</div>
-    <h1>Đếm người &amp; <em>cảnh báo</em> đám đông <em>bất thường</em></h1>
-    <p>Khung hình → CSRNet (bản đồ mật độ) → số người → mật độ người/m² → luật cảnh báo.
-      Ảnh và video chỉ được xử lý trong bộ nhớ, không lưu lại; chỉ số liệu thống kê được ghi nhật ký.</p>
-    <div class="tags">
-      <span class="tag">CSRNet</span><span class="tag">ShanghaiTech Part B</span>
-      <span class="tag">Ngưỡng Fruin / Still</span><span class="tag" id="tag-privacy">Chế độ riêng tư</span>
+<!-- FLYOUT CẤU HÌNH HỆ THỐNG -->
+<aside class="settings-drawer" id="settings" hidden>
+  <div class="drawer-header">
+    <h3>Cấu hình tham số giám sát</h3>
+    <button type="button" class="drawer-close" id="settings-close" aria-label="Đóng">×</button>
+  </div>
+  <div class="drawer-content">
+    <div class="config-group">
+      <span class="group-title">Khu vực quan sát</span>
+      <label class="form-row">
+        <span>Diện tích giám sát (m²)</span>
+        <input type="number" id="s-area" min="1" max="100000" step="10">
+      </label>
+      <div class="form-row">
+        <span>Loại hoạt động đám đông</span>
+        <div class="pill-toggle" id="s-type">
+          <button type="button" data-type="di chuyển">Di chuyển</button>
+          <button type="button" data-type="đứng">Đứng yên</button>
+        </div>
+      </div>
+      <p class="hint-text" id="s-thr"></p>
+    </div>
+
+    <div class="config-group">
+      <span class="group-title">Xử lý hình ảnh</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="s-blur">
+        <span class="slider"></span>
+        <span>Chế độ riêng tư (làm mờ mặt)</span>
+      </label>
+      <div class="form-row">
+        <span>Độ phân giải xử lý: <output id="o-maxside"></output></span>
+        <input type="range" id="s-maxside" min="0" max="4" step="1">
+      </div>
+      <div class="form-row">
+        <span>FPS hiển thị mục tiêu: <output id="o-fps"></output></span>
+        <input type="range" id="s-fps" min="5" max="30" step="1">
+      </div>
+    </div>
+
+    <div class="config-group">
+      <span class="group-title">Phát hiện bất thường</span>
+      <div class="form-row">
+        <span>Tần suất suy luận: <output id="o-stride"></output></span>
+        <input type="range" id="s-stride" min="0" max="5" step="0.2">
+      </div>
+      <div class="form-row">
+        <span>Ngưỡng tăng đột biến: <output id="o-surge"></output></span>
+        <input type="range" id="s-surge" min="10" max="200" step="10">
+      </div>
+      <div class="form-row">
+        <span>Cửa sổ kiểm tra đột biến: <output id="o-window"></output></span>
+        <input type="range" id="s-window" min="2" max="60" step="1">
+      </div>
+      <div class="form-row">
+        <span>Số lần đo xác nhận mức: <output id="o-persist"></output></span>
+        <input type="range" id="s-persist" min="1" max="10" step="1">
+      </div>
+    </div>
+  </div>
+</aside>
+
+<main class="main-container">
+  <div class="notice-bar" id="model-missing" hidden></div>
+
+  <!-- ================================================================
+       TAB 02: VIDEO / CAMERA (CHÍNH - HIỂN THỊ TO & TRỰC QUAN)
+       ================================================================ -->
+  <section class="view-panel" id="view-video" data-view="video">
+
+    <!-- THANH ĐIỀU KHIỂN NGUỒN PHÁT (NHỎ GỌN, TINH TẾ) -->
+    <div class="source-toolbar">
+      <div class="source-switcher" id="src-seg">
+        <button type="button" class="btn-seg active" data-src="file">Tệp Video</button>
+        <button type="button" class="btn-seg" data-src="camera">Live Camera / RTSP</button>
+      </div>
+
+      <!-- Khối chọn file video -->
+      <div class="source-input-wrap" id="src-file">
+        <label class="compact-dropzone" id="vid-drop" title="Kéo thả hoặc bấm để chọn video">
+          <input type="file" id="vid-input" accept=".mp4,.avi,.mov,.mkv" hidden>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span class="file-name-label" id="vid-name">Chọn hoặc thả tệp video (MP4, AVI, MKV)...</span>
+          <span class="btn-browse">Duyệt...</span>
+        </label>
+      </div>
+
+      <!-- Khối nhập camera webcam/rtsp -->
+      <div class="source-input-wrap" id="src-camera" hidden>
+        <div class="cam-input-row">
+          <input type="text" id="cam-url" value="0" placeholder="Chỉ số webcam (0, 1) hoặc URL RTSP" autocomplete="off" class="input-text">
+          <div class="cam-secs-group">
+            <span class="input-addon">Thời gian:</span>
+            <input type="number" id="cam-secs" value="60" min="10" max="3600" class="input-num">
+            <span class="input-addon">giây</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Các nút thao tác -->
+      <div class="source-actions">
+        <button type="button" class="btn-primary" id="run-btn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span>Bắt đầu phân tích</span>
+        </button>
+        <button type="button" class="btn-danger" id="stop-btn" hidden>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12"></rect></svg>
+          <span>Dừng theo dõi</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Trạng thái loading / error -->
+    <div class="status-msg-loading" id="vid-loading" hidden>
+      <span class="spinner-circle"></span>
+      <span id="vid-loading-text">Đang kết nối luồng dữ liệu...</span>
+    </div>
+    <div class="status-msg-error" id="vid-error" hidden></div>
+
+    <!-- ==========================================================
+         HAI KHUNG CAMERA RIÊNG BIỆT (TO - RÕ - CHUYÊN NGHIỆP)
+         ========================================================== -->
+    <div class="dual-camera-grid">
+
+      <!-- KHUNG 1: CAMERA NGUỒN GỐC (RAW FEED) -->
+      <section class="camera-card camera-source-card">
+        <header class="cam-card-header">
+          <div class="cam-meta-left">
+            <span class="cam-indicator rec-pulse" id="src-live-badge">RAW LIVE</span>
+            <span class="cam-channel-id">CH-01</span>
+            <h2 class="cam-name">Khung Nguồn Trực Tiếp</h2>
+          </div>
+          <div class="cam-meta-right">
+            <span class="time-stamp" id="live-source-caption">00:00:00</span>
+          </div>
+        </header>
+
+        <div class="cam-viewport">
+          <!-- Viewfinder corners overlay -->
+          <div class="cam-corner tl"></div>
+          <div class="cam-corner tr"></div>
+          <div class="cam-corner bl"></div>
+          <div class="cam-corner br"></div>
+          <div class="cam-osd-badge">INPUT: DIRECT STREAM</div>
+
+          <img id="live-raw-frame" alt="Khung hình gốc" hidden class="cam-stream-img">
+
+          <div class="cam-empty-state" id="live-source-empty">
+            <div class="empty-icon-wrap">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M23 7l-7 5 7 5V7z"></path>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+              </svg>
+            </div>
+            <p class="empty-title">CHƯA CÓ TÍN HIỆU CAMERA NGUỒN</p>
+            <p class="empty-sub">Hãy chọn video hoặc kết nối webcam/RTSP rồi bấm "Bắt đầu phân tích"</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- KHUNG 2: CAMERA NHẬN DIỆN THÔNG MINH (AI DETECTION FEED) -->
+      <section class="camera-card camera-ai-card">
+        <header class="cam-card-header ai-header">
+          <div class="cam-meta-left">
+            <span class="cam-indicator ai-pulse" id="ai-live-badge">AI ACTIVE</span>
+            <span class="cam-channel-id">CH-02</span>
+            <h2 class="cam-name">Khung Nhận Diện Thông Minh</h2>
+          </div>
+          <div class="cam-meta-right">
+            <span class="ai-model-tag" id="live-caption">Chờ phân tích</span>
+          </div>
+        </header>
+
+        <div class="cam-viewport ai-viewport">
+          <!-- Viewfinder corners overlay -->
+          <div class="cam-corner tl ai-c"></div>
+          <div class="cam-corner tr ai-c"></div>
+          <div class="cam-corner bl ai-c"></div>
+          <div class="cam-corner br ai-c"></div>
+          <div class="cam-osd-badge ai-osd">AI ENGINE: CSRNET / YOLO11s</div>
+
+          <img id="live-frame" alt="Khung hình nhận diện" hidden class="cam-stream-img">
+
+          <div class="cam-empty-state" id="live-ai-empty">
+            <div class="empty-icon-wrap ai-icon-wrap">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.8">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 3"></path>
+              </svg>
+            </div>
+            <p class="empty-title">CHỜ KẾT QUẢ TỪ MÔ HÌNH SUY LUẬN</p>
+            <p class="empty-sub">Bản đồ nhiệt mật độ hoặc bounding box đầu người sẽ hiển thị trực tiếp tại đây</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Thanh tiến trình phát video -->
+    <div class="progress-bar-wrap" id="live-progress" hidden>
+      <div class="progress-fill" style="width: 0%"></div>
+    </div>
+
+    <!-- ==========================================================
+         BẢNG ĐIỀU KHIỂN & SỐ LIỆU GIÁM SÁT (HIỂN THỊ CỰC KỲ TO)
+         ========================================================== -->
+    <div class="metrics-command-center">
+
+      <!-- KPI 1: SỐ NGƯỜI (SIÊU TO) -->
+      <div class="metric-card metric-count">
+        <div class="metric-top">
+          <span class="metric-heading">TỔNG SỐ NGƯỜI HIỆN TẠI</span>
+          <span class="metric-icon">👥</span>
+        </div>
+        <div class="metric-val-wrap">
+          <span class="metric-huge" id="live-count">–</span>
+          <span class="metric-unit">người</span>
+        </div>
+        <div class="metric-foot">Đếm theo thời gian thực</div>
+      </div>
+
+      <!-- KPI 2: MẬT ĐỘ (TO) -->
+      <div class="metric-card metric-density">
+        <div class="metric-top">
+          <span class="metric-heading">MẬT ĐỘ ĐÁM ĐÔNG</span>
+          <span class="metric-icon">📐</span>
+        </div>
+        <div class="metric-val-wrap">
+          <span class="metric-huge" id="live-density">–</span>
+          <span class="metric-unit">người / m²</span>
+        </div>
+        <div class="metric-foot">Dựa trên diện tích cấu hình</div>
+      </div>
+
+      <!-- KPI 3: MỨC ĐỘ CẢNH BÁO (TO & TRỰC QUAN NHẤT) -->
+      <div class="metric-card metric-alert-level">
+        <div class="metric-top">
+          <span class="metric-heading">MỨC ĐỘ CẢNH BÁO AN NINH</span>
+          <span class="metric-icon">🚨</span>
+        </div>
+        <div class="alert-content-wrap" id="live-level">
+          <div class="level-placeholder">Hệ thống đang ở trạng thái chờ</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thống kê hiệu năng nhỏ gọn ở dưới -->
+    <div class="stream-stats-bar" id="live-stats" hidden></div>
+
+    <!-- BIỂU ĐỒ THỜI GIAN (GỌN GÀNG) -->
+    <div class="analytics-card" id="live-chart" hidden>
+      <div class="analytics-header">
+        <span class="analytics-title">BIỂU ĐỒ DIỄN BIẾN SỐ LƯỢNG NGƯỜI THEO THỜI GIAN</span>
+        <div class="chart-legend-box">
+          <span class="leg-item"><i class="leg-raw"></i> Đo tức thời</span>
+          <span class="leg-item"><i class="leg-smooth"></i> Trung bình làm trơn</span>
+        </div>
+      </div>
+      <canvas id="chart" height="110"></canvas>
+    </div>
+
+    <!-- BẢNG NHẬT KÝ CẢNH BÁO (THU GỌN) -->
+    <div class="log-section" id="log-wrap" hidden>
+      <div class="log-header-bar">
+        <span class="log-summary-text" id="summary"></span>
+        <button type="button" class="btn-secondary" id="csv-btn">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Tải file báo cáo CSV</span>
+        </button>
+      </div>
+
+      <details class="log-accordion">
+        <summary class="log-accordion-toggle">Xem chi tiết nhật ký sự kiện</summary>
+        <div class="log-table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 15%">Thời điểm (s)</th>
+                <th style="width: 20%">Mức cảnh báo</th>
+                <th style="width: 65%">Mô tả sự kiện chi tiết</th>
+              </tr>
+            </thead>
+            <tbody id="log-body"></tbody>
+          </table>
+          <p class="empty-log-msg" id="log-empty">Chưa ghi nhận sự kiện bất thường nào.</p>
+        </div>
+      </details>
     </div>
   </section>
 
-  <div class="notice" id="model-missing" hidden></div>
-
-  <!-- ============ 01 · Ảnh ============ -->
-  <section class="view" id="view-image" data-view="image">
-    <div class="section-title"><span class="num">01</span><h2>Phân tích <em>một bức ảnh</em></h2><span class="rule"></span></div>
-
-    <label class="dropzone" id="img-drop">
-      <input type="file" id="img-input" accept=".jpg,.jpeg,.png,.bmp" hidden>
-      <span class="dz-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </span>
-      <span class="dz-text"><b>Thả ảnh đám đông vào đây</b><small>hoặc bấm để chọn · JPG, PNG, BMP</small></span>
-      <span class="btn">Chọn ảnh</span>
-    </label>
-
-    <!-- Trạng thái trống: thẻ giới thiệu 2 cột -->
-    <article class="card" id="img-empty">
-      <figure class="card-media">
-        <img src="{{ url_for('static', filename='assets/demo.jpg') }}" alt="Ảnh thực tế và bản đồ mật độ CSRNet" loading="lazy">
-        <figcaption>Ví dụ: ảnh thực tế và bản đồ mật độ CSRNet</figcaption>
-      </figure>
-      <div class="card-copy">
-        <h3>Cách hoạt động</h3>
-        <p>Tải lên một ảnh đám đông. Hệ thống ước lượng số người, quy đổi ra mật độ theo diện tích vùng quan sát
-          (trong <a href="#" data-open-settings>Cấu hình</a>) và xếp mức cảnh báo.</p>
-        <ol class="steps">
-          <li>CSRNet dự đoán bản đồ mật độ</li>
-          <li>Tổng bản đồ = số người ước lượng</li>
-          <li>Chia cho diện tích → người/m²</li>
-          <li>So với ngưỡng Fruin / Still → mức cảnh báo</li>
-        </ol>
-      </div>
-    </article>
-
-    <p class="loading" id="img-loading" hidden><span class="spinner"></span>Đang phân tích ảnh…</p>
-    <p class="error" id="img-error" hidden></p>
-
-    <!-- Kết quả -->
-    <article class="card" id="img-result" hidden>
-      <figure class="card-media">
-        <div class="seg" id="img-seg" hidden>
-          <button type="button" class="active" data-show="overlay">Bản đồ nhiệt</button>
-          <button type="button" data-show="original">Ảnh gốc</button>
+  <!-- ================================================================
+       TAB 01: PHÂN TÍCH ẢNH TĨNH
+       ================================================================ -->
+  <section class="view-panel" id="view-image" data-view="image" hidden>
+    <div class="img-drop-area">
+      <label class="dropzone-large" id="img-drop">
+        <input type="file" id="img-input" accept=".jpg,.jpeg,.png,.bmp" hidden>
+        <div class="drop-icon-circle">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         </div>
-        <img id="img-out" alt="Bản đồ nhiệt mật độ">
-        <figcaption id="img-caption">Bản đồ nhiệt mật độ</figcaption>
-      </figure>
-      <div class="card-copy">
-        <div class="kpis">
-          <div class="kpi"><span>Số người</span><b id="img-count">–</b></div>
-          <div class="kpi"><span>Mật độ (người/m²)</span><b id="img-density">–</b></div>
-        </div>
-        <div id="img-level"></div>
-        <p class="muted" id="img-time"></p>
-      </div>
-    </article>
-  </section>
-
-  <!-- ============ 02 · Video / Camera ============ -->
-  <section class="view" id="view-video" data-view="video" hidden>
-    <div class="section-title"><span class="num">02</span><h2>Theo dõi <em>video &amp; camera</em></h2><span class="rule"></span></div>
-
-    <div class="seg seg-lg" id="src-seg">
-      <button type="button" class="active" data-src="file">Tải video lên</button>
-      <button type="button" data-src="camera">Camera (webcam / RTSP)</button>
-    </div>
-
-    <div class="src-panel" id="src-file">
-      <label class="dropzone" id="vid-drop">
-        <input type="file" id="vid-input" accept=".mp4,.avi,.mov,.mkv" hidden>
-        <span class="dz-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22"><rect x="3" y="5" width="13" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m16 10 5-3v10l-5-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        </span>
-        <span class="dz-text"><b id="vid-name">Thả video vào đây</b><small>hoặc bấm để chọn · MP4, AVI, MOV, MKV</small></span>
-        <span class="btn btn-ghost">Chọn video</span>
+        <p class="drop-primary">Kéo thả ảnh đám đông vào đây hoặc bấm để chọn tệp</p>
+        <p class="drop-secondary">Hỗ trợ định dạng JPG, PNG, BMP · Ảnh được xử lý trực tiếp trên GPU/CPU</p>
+        <button type="button" class="btn-primary" style="margin-top: 8px;">Chọn ảnh từ máy tính</button>
       </label>
     </div>
 
-    <div class="src-panel" id="src-camera" hidden>
-      <div class="field-row">
-        <label class="field"><span>Chỉ số webcam (0, 1…) hoặc URL RTSP</span><input type="text" id="cam-url" value="0" autocomplete="off"></label>
-        <label class="field field-sm"><span>Thời gian theo dõi (giây)</span><input type="number" id="cam-secs" value="60" min="10" max="3600"></label>
+    <p class="empty-hint" id="img-empty">Hãy đặt diện tích khu vực quan sát trong phần <b>Cấu hình</b> để có chỉ số mật độ (người/m²) chính xác nhất.</p>
+    <div class="status-msg-loading" id="img-loading" hidden><span class="spinner-circle"></span>Đang phân tích hình ảnh...</div>
+    <div class="status-msg-error" id="img-error" hidden></div>
+
+    <article class="img-result-card" id="img-result" hidden>
+      <div class="img-preview-box">
+        <div class="img-view-switcher" id="img-seg" hidden>
+          <button type="button" class="btn-seg active" data-show="overlay">Bản đồ nhiệt</button>
+          <button type="button" class="btn-seg" data-show="original">Ảnh gốc</button>
+        </div>
+        <img id="img-out" alt="Kết quả phân tích ảnh">
+        <div class="img-caption-bar" id="img-caption">Bản đồ nhiệt mật độ đám đông</div>
       </div>
-    </div>
 
-    <div class="actions">
-      <button class="btn" id="run-btn" type="button">Phân tích video</button>
-      <button class="btn btn-ghost" id="stop-btn" type="button" hidden>Dừng</button>
-      <p class="loading" id="vid-loading" hidden><span class="spinner"></span><span id="vid-loading-text">Đang tải video lên…</span></p>
-    </div>
-    <p class="error" id="vid-error" hidden></p>
+      <div class="img-stats-box">
+        <div class="kpi-pair">
+          <div class="kpi-mini">
+            <span class="kpi-mini-lbl">SỐ LƯỢNG NGƯỜI</span>
+            <b class="kpi-mini-val" id="img-count">–</b>
+          </div>
+          <div class="kpi-mini">
+            <span class="kpi-mini-lbl">MẬT ĐỘ TRUNG BÌNH</span>
+            <b class="kpi-mini-val" id="img-density">–</b>
+            <span class="kpi-mini-sub">người/m²</span>
+          </div>
+        </div>
 
-    <article class="card live" id="live" hidden>
-      <figure class="card-media">
-        <img id="live-frame" alt="Khung hình đang phân tích">
-        <figcaption id="live-caption">t = 0.0s</figcaption>
-        <div class="progress" id="live-progress"><span></span></div>
-      </figure>
-      <div class="card-copy">
-        <div class="kpis">
-          <div class="kpi"><span>Số người</span><b id="live-count">–</b></div>
-          <div class="kpi"><span>Mật độ (người/m²)</span><b id="live-density">–</b></div>
-        </div>
-        <div id="live-level"></div>
-        <div class="chart-box">
-          <div class="chart-head"><span>Số người theo thời gian</span><span class="legend"><i></i>đo được <i class="sm"></i>làm trơn</span></div>
-          <canvas id="chart" height="180"></canvas>
-        </div>
+        <div id="img-level" class="img-level-container"></div>
+        <p class="img-meta-info" id="img-time"></p>
       </div>
     </article>
-
-    <div id="log-wrap" hidden>
-      <div class="section-title"><span class="num">—</span><h2>Nhật ký <em>cảnh báo</em></h2><span class="rule"></span></div>
-      <div class="table-card">
-        <table class="log">
-          <thead><tr><th>t (s)</th><th>Mức</th><th>Sự kiện</th></tr></thead>
-          <tbody id="log-body"></tbody>
-        </table>
-        <p class="muted empty-log" id="log-empty">Không có sự kiện bất thường.</p>
-      </div>
-      <div class="actions"><button class="btn" id="csv-btn" type="button">Tải số liệu (CSV)</button><span class="muted" id="summary"></span></div>
-    </div>
   </section>
 </main>
 
-<!-- ============ Chân trang: hồ cá Koi ============ -->
-<footer class="pond" aria-label="Chân trang">
-  <div class="stage" id="pond-stage">
-    <span class="ripple" style="left:30%;top:70px"></span>
-    <span class="ripple" style="left:62%;top:190px;animation-delay:-2s"></span>
-    <span class="ripple" style="left:84%;top:80px;animation-delay:-3.6s"></span>
-  </div>
-  <span class="pad" style="left:7%;top:40px;width:62px;height:62px"></span>
-  <span class="pad" style="left:12%;top:96px;width:30px;height:30px"></span>
-  <span class="pad" style="right:8%;top:130px;width:76px;height:76px"></span>
-  <span class="pad" style="right:15%;top:48px;width:26px;height:26px"></span>
-  <div class="pond-caption">
-    <span><em>Crowd Monitor</em> · đồ án An toàn thông tin</span>
-    <span>CSRNet · luật mật độ &amp; tăng đột biến</span>
+<!-- ============ CHÂN TRANG ĐƠN GIẢN, GỌN GÀNG (ĐÃ BỎ HỒ CÁ) ============ -->
+<footer class="app-footer">
+  <div class="footer-inner">
+    <span>© 2026 <b>Crowd Monitor</b> · Đồ án An toàn Thông tin & Thị giác máy tính</span>
+    <span>Thuật toán CSRNet & YOLO11s · Nhận diện mật độ & cảnh báo đám đông theo thời gian thực</span>
   </div>
 </footer>
 
-<!-- ============ Thanh điều hướng nổi ============ -->
-<nav class="navpill" id="navpill" aria-label="Điều hướng">
-  <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Mở menu" aria-expanded="false">
-    <span></span><span></span><span></span>
-  </button>
-  <div class="nav-items">
-    <button type="button" class="nav-item active" data-go="image">Ảnh</button>
-    <button type="button" class="nav-item" data-go="video">Video / Camera</button>
-    <span class="nav-sep" aria-hidden="true"></span>
-    <button type="button" class="nav-item" data-open-settings aria-expanded="false">Cấu hình</button>
-  </div>
-
-  <!-- Flyout cấu hình -->
-  <div class="flyout" id="settings" hidden>
-    <div class="flyout-head"><h3>Cấu <em>hình</em></h3><button type="button" class="x" id="settings-close" aria-label="Đóng">×</button></div>
-    <div class="flyout-body">
-      <label class="field"><span>Diện tích vùng camera quan sát (m²)</span>
-        <input type="number" id="s-area" min="1" max="100000" step="10"></label>
-      <div class="field"><span>Loại đám đông</span>
-        <div class="seg" id="s-type">
-          <button type="button" data-type="di chuyển">Di chuyển</button>
-          <button type="button" data-type="đứng">Đứng</button>
-        </div>
-        <small class="muted" id="s-thr"></small>
-      </div>
-      <label class="switch"><input type="checkbox" id="s-blur"><span class="track"></span>Chế độ riêng tư (làm mờ ảnh hiển thị)</label>
-      <label class="field"><span>Độ phân giải xử lý (cạnh dài) <output id="o-maxside"></output></span>
-        <input type="range" id="s-maxside" min="0" max="3" step="1"></label>
-
-      <h4>Phát hiện bất thường <em>(video)</em></h4>
-      <label class="field"><span>Phân tích mỗi <output id="o-stride"></output></span>
-        <input type="range" id="s-stride" min="0.2" max="5" step="0.2"></label>
-      <label class="field"><span>Ngưỡng tăng đột biến <output id="o-surge"></output></span>
-        <input type="range" id="s-surge" min="10" max="200" step="10"></label>
-      <label class="field"><span>Cửa sổ tăng đột biến <output id="o-window"></output></span>
-        <input type="range" id="s-window" min="2" max="60" step="1"></label>
-      <label class="field"><span>Số lần đo liên tiếp để đổi mức <output id="o-persist"></output></span>
-        <input type="range" id="s-persist" min="1" max="10" step="1"></label>
-      <small class="muted">Chống cảnh báo chập chờn: mức chỉ đổi khi được xác nhận nhiều lần liên tiếp.</small>
-    </div>
-  </div>
-</nav>
-
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="toast-popup" id="toast" role="status" aria-live="polite"></div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

@@ -1,0 +1,3 @@
+﻿model,n_test,mae,rmse,delta_mae_vs_csrnet_saved,delta_rmse_vs_csrnet_saved
+CSRNet (kết quả đã lưu),316,9.553877901487713,14.87239002722598,0.0,0.0
+YOLO11s (nhãn hộp đầu xấp xỉ),316,8.395569620253164,14.347517758232076,-1.1583082812345484,-0.5248722689939047
