@@ -245,18 +245,42 @@ class InferenceEngine:
 
 
 class YoloHeadDetector:
-    """YOLO11s đầu người với cấu hình đã chọn trên validation Part B."""
+    """YOLO11s đầu người với tăng tốc ONNX Runtime trên CPU và cấu hình chọn trên validation Part B."""
 
     backend = "pytorch"
-    default_side = 1024
+    default_side = 768 if not torch.cuda.is_available() else 1024
 
-    def __init__(self, weights_path, device):
+    def __init__(self, weights_path, device, prefer_onnx=True, reserve_cores=3):
         from ultralytics import YOLO
 
-        self.model = YOLO(weights_path, task="detect")
-        if list(self.model.names.values()) != ["head"]:
-            raise ValueError("Cần trọng số YOLO được huấn luyện cho một lớp head.")
         self.device = device
+        self.weights_path = weights_path
+        cores = os.cpu_count() or 4
+        self.threads = max(1, min(9, cores - max(0, reserve_cores)))
+        if device == "cpu":
+            try:
+                torch.set_num_threads(self.threads)
+            except Exception:
+                pass
+
+        pt_model = YOLO(weights_path, task="detect")
+        if list(pt_model.names.values()) != ["head"]:
+            raise ValueError("Cần trọng số YOLO được huấn luyện cho một lớp head.")
+
+        self.model = pt_model
+        self.backend = "pytorch"
+        if prefer_onnx and device == "cpu":
+            onnx_path = os.path.splitext(weights_path)[0] + ".onnx"
+            try:
+                if not (os.path.isfile(onnx_path) and os.path.getmtime(onnx_path) >= os.path.getmtime(weights_path)):
+                    pt_model.export(format="onnx", dynamic=True, simplify=False, opset=17)
+                if os.path.isfile(onnx_path):
+                    os.environ.setdefault("OMP_NUM_THREADS", str(self.threads))
+                    self.model = YOLO(onnx_path, task="detect")
+                    self.backend = "onnx"
+            except Exception:
+                self.model = pt_model
+                self.backend = "pytorch"
 
     def run(self, img_rgb, max_side):
         result = self.model.predict(
@@ -326,10 +350,12 @@ class CrowdMonitor:
 
     - Quá tải: mật độ rho = C / A vượt ngưỡng; mức chỉ đổi khi giữ nguyên `min_persist` lần đo liên tiếp.
     - Tăng đột biến: (C_t - C_{t-W}) / C_{t-W} >= surge_ratio với C_{t-W} >= min_count; khi đó nâng mức thêm một bậc.
+    - Xâm nhập vùng cấm, hoảng loạn chuyển động và di chuyển ngược chiều có độ bền độc lập.
     """
 
     def __init__(self, area_m2, crowd_type="di chuyển", surge_ratio=0.5, surge_window=10.0,
-                 min_count=10, min_persist=3, ema_alpha=0.5):
+                 min_count=10, min_persist=3, ema_alpha=0.5,
+                 restricted_thr=3.0, motion_persist=2):
         self.area = float(area_m2)
         self.crowd_type = crowd_type
         self.surge_ratio = surge_ratio
@@ -337,18 +363,26 @@ class CrowdMonitor:
         self.min_count = min_count
         self.min_persist = min_persist
         self.ema_alpha = ema_alpha
+        self.restricted_thr = float(restricted_thr)
+        self.motion_persist = max(1, int(motion_persist))
         self.history = deque()  # (t, số đếm đã làm trơn)
         self.smoothed = None
         self.level = 0
         self._cand, self._n = 0, 0
         self.surge = False
         self.final_level = 0
+        self._roi_n = 0
+        self.roi_intrusion = False
+        self._panic_n = 0
+        self.panic_active = False
+        self._counter_n = 0
+        self.counter_active = False
 
-    def update(self, t, count):
+    def update(self, t, count, *, restricted_count=0.0, motion=None):
         a = self.ema_alpha
         self.smoothed = count if self.smoothed is None else a * count + (1 - a) * self.smoothed
         rho = self.smoothed / self.area
-        events = []
+        event_items = []
 
         raw = density_level(rho, self.crowd_type)
         if raw == self.level:
@@ -358,24 +392,110 @@ class CrowdMonitor:
             self._cand = raw
             if self._n >= self.min_persist:
                 if raw > self.level:
-                    events.append(f"Mật độ tăng lên mức {LEVELS[raw]['name']} ({rho:.2f} người/m²)")
+                    msg = f"Mật độ tăng lên mức {LEVELS[raw]['name']} ({rho:.2f} người/m²)"
                 else:
-                    events.append(f"Mật độ giảm về mức {LEVELS[raw]['name']} ({rho:.2f} người/m²)")
+                    msg = f"Mật độ giảm về mức {LEVELS[raw]['name']} ({rho:.2f} người/m²)"
+                event_items.append({"type": "density", "message": msg, "level": raw})
                 self.level, self._n = raw, 0
 
+        if self.history and t < self.history[-1][0]:
+            self.history.clear()
         while self.history and self.history[0][0] < t - self.surge_window:
             self.history.popleft()
         base = self.history[0][1] if self.history else None
-        surge = (base is not None and base >= self.min_count
-                 and (self.smoothed - base) / base >= self.surge_ratio)
+        surge = bool(base is not None and base >= self.min_count
+                     and (self.smoothed - base) / base >= self.surge_ratio)
         if surge and not self.surge:
-            events.append(f"Số người tăng đột biến {base:.0f} → {self.smoothed:.0f} trong {self.surge_window:.0f}s")
+            msg = f"Số người tăng đột biến {base:.0f} → {self.smoothed:.0f} trong {self.surge_window:.0f}s"
+            event_items.append({"type": "surge", "message": msg, "level": min(3, self.level + 1)})
         self.surge = surge
         self.history.append((t, self.smoothed))
 
-        final = min(3, self.level + (1 if surge else 0))
+        rc = float(restricted_count or 0.0)
+        roi_persist = max(1, min(2, int(self.min_persist)))
+        if rc >= self.restricted_thr:
+            self._roi_n += 1
+            roi_intrusion = self._roi_n >= roi_persist
+        else:
+            self._roi_n = 0
+            roi_intrusion = False
+        if roi_intrusion and not self.roi_intrusion:
+            msg = f"Xâm nhập vùng cấm ({rc:.0f} người ≥ ngưỡng {self.restricted_thr:.0f})"
+            event_items.append({"type": "roi_intrusion", "message": msg, "level": min(3, max(self.level + 1, 2))})
+        self.roi_intrusion = roi_intrusion
+
+        if bool(motion and motion.get("panic")):
+            self._panic_n += 1
+            panic_active = self._panic_n >= self.motion_persist
+        else:
+            self._panic_n = 0
+            panic_active = False
+        if panic_active and not self.panic_active:
+            ent = float(motion.get("direction_entropy", 0.0))
+            spd = float(motion.get("p90_speed", 0.0))
+            msg = f"Chuyển động hỗn loạn bất thường (Entropy {ent:.2f}, tốc độ {spd:.1f}%/s)"
+            event_items.append({"type": "motion_panic", "message": msg, "level": min(3, max(self.level + 1, 2))})
+        self.panic_active = panic_active
+
+        if bool(motion and motion.get("counter_flow")):
+            self._counter_n += 1
+            counter_active = self._counter_n >= self.motion_persist
+        else:
+            self._counter_n = 0
+            counter_active = False
+        if counter_active and not self.counter_active:
+            cfr = float(motion.get("counter_flow_ratio", 0.0))
+            msg = f"Dòng người di chuyển ngược chiều ({cfr * 100:.0f}% ngược hướng chính)"
+            event_items.append({"type": "counter_flow", "message": msg, "level": min(3, max(self.level + 1, 1))})
+        self.counter_active = counter_active
+
+        final = self.level
+        if surge:
+            final = min(3, final + 1)
+        if roi_intrusion:
+            final = min(3, max(final + 1, 2))
+        if counter_active:
+            final = min(3, max(final + 1, 1))
+        if panic_active:
+            final = min(3, max(final + 1, 2))
+
+        for item in event_items:
+            item["level"] = max(item["level"], final)
+
+        events = [it["message"] for it in event_items]
         if final != self.final_level and not events:
             events.append(f"Mức cảnh báo: {LEVELS[final]['name']}")
         self.final_level = final
-        return {"t": t, "count": count, "smoothed": self.smoothed, "density": rho,
-                "level": final, "surge": surge, "events": events}
+
+        overload_eta_s = None
+        if len(self.history) >= 4:
+            ts = np.fromiter((p[0] for p in self.history), dtype=np.float64)
+            if (ts[-1] - ts[0]) >= 2.0:
+                cs = np.fromiter((p[1] for p in self.history), dtype=np.float64)
+                dt_arr = ts - ts.mean()
+                denom = float(np.dot(dt_arr, dt_arr))
+                if denom > 1e-9:
+                    dc_dt = float(np.dot(dt_arr, cs - cs.mean()) / denom)
+                    red_count = THRESHOLDS[self.crowd_type][2] * self.area
+                    if self.smoothed < red_count and dc_dt > 0.05 * self.area / 60.0:
+                        eta = (red_count - self.smoothed) / dc_dt
+                        if 1.0 <= eta <= 120.0:
+                            overload_eta_s = round(float(eta), 1)
+
+        motion_out = {k: v for k, v in motion.items() if k != "vectors"} if isinstance(motion, dict) else None
+        return {
+            "t": t,
+            "count": count,
+            "smoothed": self.smoothed,
+            "density": rho,
+            "level": final,
+            "surge": surge,
+            "restricted_count": rc,
+            "roi_intrusion": roi_intrusion,
+            "panic": panic_active,
+            "counter_flow": counter_active,
+            "motion": motion_out,
+            "overload_eta_s": overload_eta_s,
+            "events": events,
+            "event_items": event_items,
+        }

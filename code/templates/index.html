@@ -25,6 +25,7 @@
     <div class="mode-nav" id="navpill" role="tablist">
       <button type="button" class="nav-tab" data-go="image" role="tab">Ảnh tĩnh</button>
       <button type="button" class="nav-tab active" data-go="video" role="tab">Video / Camera</button>
+      <button type="button" class="nav-tab" data-go="history" role="tab">Lịch sử cảnh báo</button>
     </div>
   </div>
 
@@ -40,6 +41,7 @@
       <span class="pulse-dot"></span>
       <span id="status-text">Đang kết nối...</span>
     </span>
+    <span class="db-pill" id="db-badge" title="Trạng thái CSDL PostgreSQL">PG · ...</span>
     <span class="meta-tag" id="meta">CUDA · FP32</span>
     <button type="button" class="btn-icon" data-open-settings title="Cài đặt hệ thống" aria-label="Cài đặt">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -110,6 +112,32 @@
         <input type="range" id="s-persist" min="1" max="10" step="1">
       </div>
     </div>
+
+    <div class="config-group">
+      <span class="group-title">Phân tích chuyển động (Optical Flow)</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="s-flow" checked>
+        <span class="slider"></span>
+        <span>Bật phân tích Optical Flow</span>
+      </label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="s-vectors" checked>
+        <span class="slider"></span>
+        <span>Hiển thị mũi tên hướng di chuyển</span>
+      </label>
+      <div class="form-row">
+        <span>Ngưỡng tốc độ hỗn loạn: <output id="o-speed"></output></span>
+        <input type="range" id="s-speed" min="4" max="40" step="1">
+      </div>
+      <div class="form-row">
+        <span>Ngưỡng Entropy hỗn loạn: <output id="o-entropy"></output></span>
+        <input type="range" id="s-entropy" min="0.40" max="0.95" step="0.02">
+      </div>
+      <div class="form-row">
+        <span>Ngưỡng tỷ lệ ngược chiều: <output id="o-counter"></output></span>
+        <input type="range" id="s-counter" min="15" max="70" step="5">
+      </div>
+    </div>
   </div>
 </aside>
 
@@ -175,6 +203,37 @@
       </div>
     </div>
 
+    <!-- THANH VẼ VÙNG QUAN TÂM (ROI) / VÙNG CẤM TỤ TẬP -->
+    <div class="roi-toolbar" id="vid-roi-toolbar">
+      <div class="roi-mode-group">
+        <span class="roi-toolbar-label">Khoanh vùng:</span>
+        <div class="source-switcher roi-switcher" id="vid-roi-mode">
+          <button type="button" class="btn-seg active" data-roi="full">Toàn khung</button>
+          <button type="button" class="btn-seg" data-roi="roi">Vùng quan tâm (ROI)</button>
+          <button type="button" class="btn-seg" data-roi="forbidden">Vùng cấm tụ tập</button>
+        </div>
+      </div>
+
+      <div class="roi-actions-wrap" id="vid-roi-actions" hidden>
+        <button type="button" class="btn-roi-action" id="vid-roi-draw">✏ Vẽ đa giác</button>
+        <button type="button" class="btn-roi-action" id="vid-roi-undo">↶ Hoàn tác</button>
+        <button type="button" class="btn-roi-action" id="vid-roi-clear">✕ Xóa vùng</button>
+        <span class="roi-status-pill" id="vid-roi-info">Chưa vẽ vùng</span>
+
+        <label class="roi-num-field" id="vid-roi-area-wrap">
+          <span>Diện tích ROI:</span>
+          <input type="number" id="vid-roi-area" min="1" max="100000" step="5" value="50">
+          <span class="roi-unit">m²</span>
+        </label>
+
+        <label class="roi-num-field" id="vid-restricted-wrap" hidden>
+          <span>Ngưỡng cấm:</span>
+          <input type="number" id="vid-restricted-thr" min="1" max="500" step="1" value="5">
+          <span class="roi-unit">người</span>
+        </label>
+      </div>
+    </div>
+
     <!-- Trạng thái loading / error -->
     <div class="status-msg-loading" id="vid-loading" hidden>
       <span class="spinner-circle"></span>
@@ -209,6 +268,7 @@
           <div class="cam-osd-badge">INPUT: DIRECT STREAM</div>
 
           <img id="live-raw-frame" alt="Khung hình gốc" hidden class="cam-stream-img">
+          <canvas id="vid-roi-canvas" class="roi-overlay-canvas"></canvas>
 
           <div class="cam-empty-state" id="live-source-empty">
             <div class="empty-icon-wrap">
@@ -280,7 +340,7 @@
           <span class="metric-huge" id="live-count">–</span>
           <span class="metric-unit">người</span>
         </div>
-        <div class="metric-foot">Đếm theo thời gian thực</div>
+        <div class="metric-foot" id="live-count-foot">Đếm theo thời gian thực</div>
       </div>
 
       <!-- KPI 2: MẬT ĐỘ (TO) -->
@@ -293,7 +353,7 @@
           <span class="metric-huge" id="live-density">–</span>
           <span class="metric-unit">người / m²</span>
         </div>
-        <div class="metric-foot">Dựa trên diện tích cấu hình</div>
+        <div class="metric-foot" id="live-density-foot">Dựa trên diện tích cấu hình</div>
       </div>
 
       <!-- KPI 3: MỨC ĐỘ CẢNH BÁO (TO & TRỰC QUAN NHẤT) -->
@@ -305,6 +365,57 @@
         <div class="alert-content-wrap" id="live-level">
           <div class="level-placeholder">Hệ thống đang ở trạng thái chờ</div>
         </div>
+      </div>
+    </div>
+
+    <!-- ==========================================================
+         THANH CHỈ SỐ CHUYỂN ĐỘNG OPTICAL FLOW (3 THẺ ĐỒNG ĐỀU)
+         ========================================================== -->
+    <div class="motion-metrics-bar" id="motion-bar">
+      <!-- Card 1: Tốc độ chuyển động -->
+      <div class="motion-card">
+        <div class="motion-card-top">
+          <span class="motion-heading">TỐC ĐỘ CHUYỂN ĐỘNG</span>
+          <span class="motion-tag" id="flow-speed-tag">Chờ dữ liệu</span>
+        </div>
+        <div class="motion-val-row">
+          <span class="motion-val" id="flow-speed">–</span>
+        </div>
+        <div class="motion-sub">Vận tốc dịch chuyển đám đông (%/giây)</div>
+      </div>
+
+      <!-- Card 2: Độ hỗn loạn hướng (Entropy) -->
+      <div class="motion-card">
+        <div class="motion-card-top">
+          <span class="motion-heading">ĐỘ HỖN LOẠN HƯỚNG (ENTROPY)</span>
+          <span class="motion-icon">🧭</span>
+        </div>
+        <div class="motion-val-row">
+          <span class="motion-val" id="flow-entropy">–</span>
+        </div>
+        <div class="entropy-track" aria-hidden="true">
+          <div class="entropy-fill" id="flow-entropy-bar" style="width: 0%"></div>
+        </div>
+        <div class="motion-sub">Thang 0,00 (đồng nhất) → 1,00 (tán loạn)</div>
+      </div>
+
+      <!-- Card 3: Dòng chảy & Ngược chiều -->
+      <div class="motion-card">
+        <div class="motion-card-top">
+          <span class="motion-heading">DÒNG CHẢY & NGƯỢC CHIỀU</span>
+          <span class="motion-tag ok" id="flow-state">Trật tự</span>
+        </div>
+        <div class="motion-val-row motion-flow-split">
+          <div class="flow-stat-pair">
+            <span class="flow-mini-lbl">Ngược chiều:</span>
+            <span class="motion-val" id="flow-counter">–</span>
+          </div>
+          <div class="flow-compass-pill" title="Hướng di chuyển chủ đạo">
+            <span class="flow-mini-lbl">Hướng chính:</span>
+            <span class="flow-dir-val" id="flow-dir">–</span>
+          </div>
+        </div>
+        <div class="motion-sub">Tỷ lệ chuyển động ngược dòng chủ đạo</div>
       </div>
     </div>
 
@@ -323,25 +434,29 @@
       <canvas id="chart" height="110"></canvas>
     </div>
 
-    <!-- BẢNG NHẬT KÝ CẢNH BÁO (THU GỌN) -->
+    <!-- BẢNG NHẬT KÝ CẢNH BÁO (MỞ NGAY KHI CÓ SỰ KIỆN ĐẦU TIÊN) -->
     <div class="log-section" id="log-wrap" hidden>
       <div class="log-header-bar">
         <span class="log-summary-text" id="summary"></span>
-        <button type="button" class="btn-secondary" id="csv-btn">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>Tải file báo cáo CSV</span>
-        </button>
+        <div class="log-header-actions">
+          <button type="button" class="btn-secondary" id="open-history-btn">🗄 Kho lịch sử PostgreSQL</button>
+          <button type="button" class="btn-secondary" id="csv-btn">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Tải file báo cáo CSV</span>
+          </button>
+        </div>
       </div>
 
-      <details class="log-accordion">
-        <summary class="log-accordion-toggle">Xem chi tiết nhật ký sự kiện</summary>
+      <details class="log-accordion" id="log-accordion">
+        <summary class="log-accordion-toggle">Xem chi tiết nhật ký sự kiện & ảnh bằng chứng</summary>
         <div class="log-table-container">
-          <table class="data-table">
+          <table class="data-table" id="log-table">
             <thead>
               <tr>
-                <th style="width: 15%">Thời điểm (s)</th>
-                <th style="width: 20%">Mức cảnh báo</th>
-                <th style="width: 65%">Mô tả sự kiện chi tiết</th>
+                <th style="width: 14%">Thời điểm (s)</th>
+                <th style="width: 18%">Mức cảnh báo</th>
+                <th style="width: 52%">Mô tả sự kiện chi tiết</th>
+                <th style="width: 16%">Bằng chứng</th>
               </tr>
             </thead>
             <tbody id="log-body"></tbody>
@@ -368,7 +483,38 @@
       </label>
     </div>
 
-    <p class="empty-hint" id="img-empty">Hãy đặt diện tích khu vực quan sát trong phần <b>Cấu hình</b> để có chỉ số mật độ (người/m²) chính xác nhất.</p>
+    <!-- THANH VẼ VÙNG ROI CHO ẢNH TĨNH -->
+    <div class="roi-toolbar" id="img-roi-toolbar">
+      <div class="roi-mode-group">
+        <span class="roi-toolbar-label">Khoanh vùng:</span>
+        <div class="source-switcher roi-switcher" id="img-roi-mode">
+          <button type="button" class="btn-seg active" data-roi="full">Toàn khung</button>
+          <button type="button" class="btn-seg" data-roi="roi">Vùng quan tâm (ROI)</button>
+          <button type="button" class="btn-seg" data-roi="forbidden">Vùng cấm tụ tập</button>
+        </div>
+      </div>
+
+      <div class="roi-actions-wrap" id="img-roi-actions" hidden>
+        <button type="button" class="btn-roi-action" id="img-roi-draw">✏ Vẽ đa giác</button>
+        <button type="button" class="btn-roi-action" id="img-roi-undo">↶ Hoàn tác</button>
+        <button type="button" class="btn-roi-action" id="img-roi-clear">✕ Xóa vùng</button>
+        <span class="roi-status-pill" id="img-roi-info">Chưa vẽ vùng</span>
+
+        <label class="roi-num-field" id="img-roi-area-wrap">
+          <span>Diện tích ROI:</span>
+          <input type="number" id="img-roi-area" min="1" max="100000" step="5" value="50">
+          <span class="roi-unit">m²</span>
+        </label>
+
+        <label class="roi-num-field" id="img-restricted-wrap" hidden>
+          <span>Ngưỡng cấm:</span>
+          <input type="number" id="img-restricted-thr" min="1" max="500" step="1" value="5">
+          <span class="roi-unit">người</span>
+        </label>
+      </div>
+    </div>
+
+    <p class="empty-hint" id="img-empty">Hãy đặt diện tích khu vực quan sát trong phần <b>Cấu hình</b> (hoặc vẽ đa giác ROI trên ảnh) để có chỉ số mật độ (người/m²) chính xác nhất.</p>
     <div class="status-msg-loading" id="img-loading" hidden><span class="spinner-circle"></span>Đang phân tích hình ảnh...</div>
     <div class="status-msg-error" id="img-error" hidden></div>
 
@@ -378,7 +524,10 @@
           <button type="button" class="btn-seg active" data-show="overlay">Bản đồ nhiệt</button>
           <button type="button" class="btn-seg" data-show="original">Ảnh gốc</button>
         </div>
-        <img id="img-out" alt="Kết quả phân tích ảnh">
+        <div class="img-stage">
+          <img id="img-out" alt="Kết quả phân tích ảnh">
+          <canvas id="img-roi-canvas" class="roi-overlay-canvas"></canvas>
+        </div>
         <div class="img-caption-bar" id="img-caption">Bản đồ nhiệt mật độ đám đông</div>
       </div>
 
@@ -396,9 +545,95 @@
         </div>
 
         <div id="img-level" class="img-level-container"></div>
+        <div id="img-evidence" class="img-evidence-box" hidden></div>
         <p class="img-meta-info" id="img-time"></p>
       </div>
     </article>
+  </section>
+
+  <!-- ================================================================
+       TAB 03: LỊCH SỬ CẢNH BÁO POSTGRESQL
+       ================================================================ -->
+  <section class="view-panel" id="view-history" data-view="history" hidden>
+    <div class="history-toolbar">
+      <div class="history-filters">
+        <label class="hist-filter-item">
+          <span class="ctrl-label">Mức độ:</span>
+          <select id="hist-level" class="hist-select">
+            <option value="">Tất cả mức</option>
+            <option value="3">Mức Đỏ</option>
+            <option value="2">Mức Cam</option>
+            <option value="1">Mức Vàng</option>
+          </select>
+        </label>
+
+        <label class="hist-filter-item">
+          <span class="ctrl-label">Loại sự kiện:</span>
+          <select id="hist-type" class="hist-select">
+            <option value="">Tất cả loại</option>
+            <option value="density">Quá tải mật độ</option>
+            <option value="surge">Tăng đột biến</option>
+            <option value="motion_panic">Chạy tán loạn</option>
+            <option value="counter_flow">Ngược chiều</option>
+            <option value="roi_intrusion">Vi phạm vùng cấm</option>
+          </select>
+        </label>
+
+        <label class="hist-filter-item hist-session-item">
+          <span class="ctrl-label">Phiên giám sát:</span>
+          <select id="hist-session" class="hist-select">
+            <option value="">Tất cả phiên giám sát</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="history-actions">
+        <button type="button" class="btn-secondary" id="hist-refresh">↻ Làm mới</button>
+        <button type="button" class="btn-secondary" id="hist-csv">⬇ Xuất CSV lịch sử</button>
+        <button type="button" class="btn-danger btn-sm-danger" id="hist-clear">✕ Xóa lịch sử</button>
+      </div>
+    </div>
+
+    <!-- KPI TỔNG QUAN KHO LỊCH SỬ POSTGRESQL -->
+    <div class="history-kpi-strip">
+      <div class="hist-kpi-card">
+        <span class="hist-kpi-lbl">TỔNG PHIÊN GIÁM SÁT ĐÃ LƯU</span>
+        <b class="hist-kpi-val" id="hist-total-sessions">0</b>
+      </div>
+      <div class="hist-kpi-card">
+        <span class="hist-kpi-lbl">SỰ KIỆN CẢNH BÁO HIỂN THỊ</span>
+        <b class="hist-kpi-val" id="hist-total-alerts">0</b>
+      </div>
+      <div class="hist-kpi-card">
+        <span class="hist-kpi-lbl">TRẠNG THÁI LƯU TRỮ CSDL</span>
+        <b class="hist-kpi-status" id="hist-db-status">Đang kiểm tra PostgreSQL...</b>
+      </div>
+    </div>
+
+    <div class="status-msg-loading" id="hist-loading" hidden>
+      <span class="spinner-circle"></span>
+      <span>Đang truy vấn dữ liệu từ PostgreSQL...</span>
+    </div>
+    <div class="status-msg-error" id="hist-error" hidden></div>
+
+    <div class="history-table-card">
+      <div class="history-table-scroll">
+        <table class="data-table hist-table" id="hist-table">
+          <thead>
+            <tr>
+              <th style="width: 15%">Thời gian ghi nhận</th>
+              <th style="width: 16%">Nguồn / Mô hình</th>
+              <th style="width: 15%">Loại & Mức</th>
+              <th style="width: 14%">Số người / Mật độ</th>
+              <th style="width: 28%">Nội dung cảnh báo</th>
+              <th style="width: 12%">Ảnh bằng chứng</th>
+            </tr>
+          </thead>
+          <tbody id="hist-body"></tbody>
+        </table>
+        <p class="empty-log-msg" id="hist-empty">Chưa có bản ghi cảnh báo nào khớp bộ lọc trong cơ sở dữ liệu.</p>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -409,6 +644,26 @@
     <span>Thuật toán CSRNet & YOLO11s · Nhận diện mật độ & cảnh báo đám đông theo thời gian thực</span>
   </div>
 </footer>
+
+<!-- LIGHTBOX XEM ẢNH BẰNG CHỨNG ĐỘ PHÂN GIẢI ĐẦY ĐỦ -->
+<div class="lightbox-backdrop" id="lightbox" hidden role="dialog" aria-modal="true" aria-labelledby="lightbox-title">
+  <div class="lightbox-dialog">
+    <header class="lightbox-header">
+      <div class="lightbox-title-wrap">
+        <span class="lightbox-badge" id="lightbox-badge">BẰNG CHỨNG</span>
+        <h3 class="lightbox-title" id="lightbox-title">Ảnh bằng chứng sự kiện an ninh</h3>
+      </div>
+      <button type="button" class="drawer-close lightbox-close" id="lightbox-close" aria-label="Đóng">×</button>
+    </header>
+    <div class="lightbox-body">
+      <img id="lightbox-img" alt="Ảnh bằng chứng cảnh báo">
+    </div>
+    <footer class="lightbox-footer">
+      <div class="lightbox-meta" id="lightbox-meta"></div>
+      <a class="btn-primary lightbox-dl" id="lightbox-download" href="#" download>⬇ Tải ảnh bằng chứng</a>
+    </footer>
+  </div>
+</div>
 
 <div class="toast-popup" id="toast" role="status" aria-live="polite"></div>
 

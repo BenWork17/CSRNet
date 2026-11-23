@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 DEFAULT_YOUTUBE_URL = "https://www.youtube.com/watch?v=G_G8A6JU_LI"
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
 INVALID_URL = "Hãy nhập liên kết video YouTube hoặc mã nhúng iframe hợp lệ."
+_STREAM_CONTEXT = {}  # m3u8_url -> {"headers": dict, "watch_url": str, "fps": float}
 
 
 class YouTubeStreamError(RuntimeError):
@@ -53,34 +54,64 @@ def youtube_url(value):
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def resolve_youtube_live(url):
-    """Lấy địa chỉ HLS mới mỗi phiên, ưu tiên H.264 720p trở xuống."""
-    try:
-        from yt_dlp import YoutubeDL
-        from yt_dlp.utils import DownloadError
-    except ImportError:
-        raise YouTubeStreamError("Thiếu yt-dlp trên máy chủ. Hãy cài thư viện trong requirements.txt.") from None
+def _extract_hls_info(url, player_clients=None):
+    from yt_dlp import YoutubeDL
 
     options = {
         "quiet": True,
         "noplaylist": True,
         "socket_timeout": 8,
-        "retries": 0,
-        "extractor_retries": 0,
+        "retries": 1,
+        "extractor_retries": 1,
         "ignore_no_formats_error": True,
         "js_runtimes": {"deno": {}, "node": {}},
-        "format": ("bv[protocol^=m3u8][vcodec^=avc1][height<=720][fps<=30]"
-                   "/b[protocol^=m3u8][vcodec^=avc1][height<=720][fps<=30]"
+        "format": ("bv[protocol^=m3u8][vcodec^=avc1][height<=720][fps<=?30]"
+                   "/b[protocol^=m3u8][vcodec^=avc1][height<=720][fps<=?30]"
+                   "/b[protocol^=m3u8][height<=720]"
                    "/bv*[protocol^=m3u8]"),
     }
+    if player_clients:
+        options["extractor_args"] = {"youtube": {"player_client": list(player_clients)}}
+    with YoutubeDL(options) as ydl:
+        return ydl.extract_info(url, download=False)
+
+
+def resolve_youtube_live(url):
+    """Lấy địa chỉ HLS mới mỗi phiên, ưu tiên android_vr (nhanh, không chặn 403 sau 2 phân đoạn)."""
     try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
+        from yt_dlp.utils import DownloadError
+    except ImportError:
+        raise YouTubeStreamError("Thiếu yt-dlp trên máy chủ. Hãy cài thư viện trong requirements.txt.") from None
+
+    info = None
+    try:
+        try:
+            info = _extract_hls_info(url, player_clients=["android_vr"])
+        except Exception:
+            info = None
+        if not info or not info.get("url"):
+            info = _extract_hls_info(url, player_clients=None)
     except DownloadError:
         raise YouTubeStreamError("Không kết nối được luồng YouTube. Hãy kiểm tra đường dẫn và thử lại.") from None
 
     if not info or info.get("live_status") != "is_live":
         raise YouTubeStreamError("Video YouTube này hiện không phát trực tiếp.")
-    if not info.get("url") or not (info.get("protocol") or "").startswith("m3u8"):
+    m3u8_url = info.get("url")
+    if not m3u8_url or not (info.get("protocol") or "").startswith("m3u8"):
         raise YouTubeStreamError("YouTube không cung cấp luồng HLS có thể đọc cho video này.")
-    return info["url"]
+
+    if len(_STREAM_CONTEXT) > 32:
+        _STREAM_CONTEXT.clear()
+    _STREAM_CONTEXT[m3u8_url] = {
+        "headers": dict(info.get("http_headers") or {}),
+        "watch_url": url,
+        "fps": float(info.get("fps") or 25.0),
+        "width": int(info.get("width") or 1280),
+        "height": int(info.get("height") or 720),
+    }
+    return m3u8_url
+
+
+def get_stream_context(m3u8_url):
+    """Trả về thông tin HTTP headers và URL gốc gắn với luồng HLS đã phân giải."""
+    return _STREAM_CONTEXT.get(m3u8_url) or {}

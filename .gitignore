@@ -5,13 +5,19 @@ __pycache__/
 .venv/
 venv/
 
-# Trọng số ONNX: tự sinh từ .pth ở lần chạy đầu (xem code/README.md)
+# Trọng số ONNX: tự sinh từ .pth / .pt ở lần chạy đầu (xem code/README.md)
 code/weights/*.onnx
 code/weights/*.onnx.tmp
+train_yolo/yolo_partb_outputs/*.onnx
+train_yolo/yolo_partb_outputs/*.onnx.tmp
 
 # Ảnh/video và số liệu do app sinh ra khi chạy thử
 output/_bench_*.mp4
 output/demo_frame.png
+
+# Cấu hình cục bộ & dữ liệu bằng chứng cảnh báo (PostgreSQL / snapshots)
+code/.env
+code/data/
 
 # Hệ điều hành / trình soạn thảo
 .DS_Store
