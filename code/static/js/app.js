@@ -249,14 +249,19 @@
 
   // ------------------------------------------------------------ 02. Video & Camera
   let source = "file", videoFile = null, job = null, rows = [], logRows = [], videoModel = "", videoSettings = null;
+  const sourceLabels = {
+    file: { run: "Bắt đầu phân tích video", opening: "Đang nạp video lên máy chủ..." },
+    camera: { run: "Bắt đầu theo dõi camera", opening: "Đang mở kết nối camera..." },
+    youtube: { run: "Bắt đầu nhận diện trực tiếp", opening: "Đang kết nối luồng YouTube..." },
+  };
 
   $$("#src-seg button").forEach((b) => b.addEventListener("click", () => {
     if ($("#run-btn").disabled) return;
     source = b.dataset.src;
     $$("#src-seg button").forEach((x) => x.classList.toggle("active", x === b));
-    $("#src-file").hidden = source !== "file";
-    $("#src-camera").hidden = source !== "camera";
-    $("#run-btn").querySelector("span").textContent = source === "file" ? "Bắt đầu phân tích video" : "Bắt đầu theo dõi camera";
+    for (const key of Object.keys(sourceLabels)) $("#src-" + key).hidden = key !== source;
+    $("#run-btn").querySelector("span").textContent = sourceLabels[source].run;
+    $("#vid-error").hidden = true;
   }));
 
   dropzone($("#vid-drop"), $("#vid-input"), (f) => {
@@ -296,6 +301,11 @@
     if (source === "file") {
       if (!videoFile) return fail("Hãy chọn một tệp video trước.");
       fd.append("file", videoFile);
+    } else if (source === "youtube") {
+      const url = $("#youtube-url").value.trim();
+      if (!url) return fail("Hãy nhập liên kết hoặc mã nhúng YouTube.");
+      fd.append("url", url);
+      fd.append("max_secs", $("#youtube-secs").value || 60);
     } else {
       fd.append("url", $("#cam-url").value.trim() || "0");
       fd.append("max_secs", $("#cam-secs").value || 60);
@@ -327,7 +337,7 @@
     $("#summary").textContent = "";
     $("#log-wrap").hidden = true;
 
-    setRunning(true, source === "file" ? "Đang nạp video lên máy chủ..." : "Đang mở kết nối camera...");
+    setRunning(true, sourceLabels[source].opening);
 
     let id;
     try {
@@ -339,13 +349,13 @@
       return fail(e.message);
     }
 
-    $("#vid-loading-text").textContent = "Đang xử lý luồng nhận diện...";
     const es = new EventSource(`/api/jobs/${id}/events`);
     job = { id, es, t0: performance.now(), frames: 0, info: null };
 
     es.addEventListener("start", (e) => {
       job.info = JSON.parse(e.data);
       const i = job.info;
+      $("#vid-loading-text").textContent = "Đang xử lý luồng nhận diện...";
       $("#live-caption").textContent = `${i.model_label} · ${i.visualization}`;
       $("#live-stats").textContent = `Mục tiêu ${fmt(i.target_fps)} FPS · Độ phân giải ${i.max_side}px · Thiết bị: ${i.backend}`;
       $("#live-stats").hidden = false;

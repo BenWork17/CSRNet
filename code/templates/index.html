@@ -126,6 +126,7 @@
       <div class="source-switcher" id="src-seg">
         <button type="button" class="btn-seg active" data-src="file">Tệp Video</button>
         <button type="button" class="btn-seg" data-src="camera">Live Camera / RTSP</button>
+        <button type="button" class="btn-seg" data-src="youtube">YouTube Live</button>
       </div>
 
       <!-- Khối chọn file video -->
@@ -145,6 +146,17 @@
           <div class="cam-secs-group">
             <span class="input-addon">Thời gian:</span>
             <input type="number" id="cam-secs" value="60" min="10" max="3600" class="input-num">
+            <span class="input-addon">giây</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="source-input-wrap" id="src-youtube" hidden>
+        <div class="cam-input-row">
+          <input type="text" id="youtube-url" value="{{ youtube_url }}" aria-label="Liên kết hoặc mã nhúng YouTube" placeholder="Dán liên kết hoặc mã nhúng YouTube" autocomplete="off" class="input-text">
+          <div class="cam-secs-group">
+            <span class="input-addon">Thời gian:</span>
+            <input type="number" id="youtube-secs" value="60" min="10" max="3600" aria-label="Thời gian phân tích YouTube (giây)" class="input-num">
             <span class="input-addon">giây</span>
           </div>
         </div>
@@ -206,7 +218,7 @@
               </svg>
             </div>
             <p class="empty-title">CHƯA CÓ TÍN HIỆU CAMERA NGUỒN</p>
-            <p class="empty-sub">Hãy chọn video hoặc kết nối webcam/RTSP rồi bấm "Bắt đầu phân tích"</p>
+            <p class="empty-sub">Chọn tệp video, camera hoặc YouTube Live để bắt đầu phân tích.</p>
           </div>
         </div>
       </section>

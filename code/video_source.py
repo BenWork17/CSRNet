@@ -5,12 +5,12 @@ import time
 import cv2
 
 
-def open_capture(source):
+def open_capture(source, *, open_timeout_ms=5000, read_timeout_ms=2000):
     if isinstance(source, str) and source.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
         # Timeout phải được đặt khi mở nguồn FFmpeg, không phải sau khi mở.
         return cv2.VideoCapture(source, cv2.CAP_FFMPEG, [
-            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000,
-            cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000,
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, open_timeout_ms,
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC, read_timeout_ms,
         ])
     return cv2.VideoCapture(source)
 

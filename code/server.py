@@ -13,7 +13,7 @@ Biến môi trường (tùy chọn):
 API:
     GET  /api/status                 trạng thái mô hình, backend suy luận, ngưỡng, các mức cảnh báo
     POST /api/image                  phân tích một ảnh (multipart: file + tham số)
-    POST /api/jobs                   tạo phiên phân tích video/camera → {id}
+    POST /api/jobs                   tạo phiên phân tích video/camera/YouTube Live → {id}
     GET  /api/jobs/<id>/events       luồng kết quả theo thời gian (Server-Sent Events)
     POST /api/jobs/<id>/stop         dừng phiên
 
@@ -40,6 +40,8 @@ from flask import Flask, Response, abort, jsonify, render_template, request
 
 from crowd_core import (LEVELS, THRESHOLDS, CrowdMonitor, InferenceEngine, YoloHeadDetector,
                         auto_max_side, density_level, draw_head_boxes, heat_layer, privacy_blur, soft_blur)
+from video_source import open_capture as open_network_capture
+from youtube_source import DEFAULT_YOUTUBE_URL, YouTubeStreamError, resolve_youtube_live, youtube_url
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS = os.environ.get("CROWD_WEIGHTS", os.path.join(BASE, "weights", "csrnet_partB.pth"))
@@ -192,7 +194,7 @@ def ext_of(name):
 # ---------------------------------------------------------------------------- Trang
 @app.get("/")
 def index():
-    return render_template("index.html", contact_email=CONTACT_EMAIL)
+    return render_template("index.html", contact_email=CONTACT_EMAIL, youtube_url=DEFAULT_YOUTUBE_URL)
 
 
 @app.get("/api/status")
@@ -280,9 +282,17 @@ def create_job():
         with os.fdopen(fd, "wb") as out:
             f.save(out)
         job.update(kind="file", src=tmp, tmp=tmp)
-    else:
+    elif source == "camera":
         url = (request.form.get("url") or "0").strip()
         job.update(kind="camera", src=int(url) if url.isdigit() else url)
+    elif source == "youtube":
+        try:
+            url = youtube_url(request.form.get("url", ""))
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        job.update(kind="youtube", src=url)
+    else:
+        return jsonify({"error": "Nguồn video không hợp lệ."}), 400
     jid = uuid.uuid4().hex
     with _jobs_lock:
         JOBS[jid] = job
@@ -365,22 +375,34 @@ class VideoSession:
         period = 1.0 / max(1.0, min(src_fps, 30.0))
         next_t = time.perf_counter()
         idx = 1  # khung đầu đã được đọc khi mở phiên
-        while not self.stop and not job["stop"]:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            idx += 1
-            tsec = idx / src_fps if self.is_file else time.perf_counter() - self.t_start
+        error = None
+        try:
+            while not self.stop and not job["stop"]:
+                ok, frame = cap.read()
+                if not ok:
+                    if job["kind"] == "youtube":
+                        error = "Luồng YouTube đã ngừng gửi hình. Hãy thử kết nối lại."
+                    break
+                idx += 1
+                tsec = idx / src_fps if self.is_file else time.perf_counter() - self.t_start
+                with s.lock:
+                    s.frame, s.tsec, s.frame_seq = frame, tsec, idx
+                next_t += period
+                dt = next_t - time.perf_counter()
+                if dt > 0:
+                    time.sleep(dt)
+                elif dt < -1.0:      # tụt lại quá xa (máy bận) → bỏ phần bù, không cố đuổi
+                    next_t = time.perf_counter()
+        except Exception:
+            app.logger.exception("Lỗi khi đọc khung hình video")
+            error = "Không đọc được khung hình từ nguồn video."
+        finally:
+            cap.release()
+            _cleanup_job(job)
             with s.lock:
-                s.frame, s.tsec, s.frame_seq = frame, tsec, idx
-            next_t += period
-            dt = next_t - time.perf_counter()
-            if dt > 0:
-                time.sleep(dt)
-            elif dt < -1.0:      # tụt lại quá xa (máy bận) → bỏ phần bù, không cố đuổi
-                next_t = time.perf_counter()
-        with s.lock:
-            s.eof = True
+                s.eof = True
+                if error and not self.stop and not job["stop"]:
+                    s.error = error
 
     # -- vòng suy luận -------------------------------------------------------
     def _infer_worker(self):
@@ -435,21 +457,39 @@ class VideoSession:
         s, p = self.s, self.p
         model_id = p["model"]
         model = model_meta(model_id)
-        cap = open_capture(self.job["src"], self.is_file)
+        youtube = self.job["kind"] == "youtube"
+        self.summary.update(backend=model["backend"], model=model_id,
+                            model_label=model["label"], target_fps=p["fps"])
+        cap, reader = None, None
         try:
+            src = self.job["src"]
+            if youtube:
+                yield ": Đang kết nối YouTube\n\n"
+                if not self.job["stop"]:
+                    src = resolve_youtube_live(src)
+                if not self.job["stop"]:
+                    # Phân đoạn HLS có thể dài 5 giây và cần thêm thời gian tải/giải mã.
+                    cap = open_network_capture(src, open_timeout_ms=18000, read_timeout_ms=12000)
+                if self.job["stop"]:
+                    self.summary["stopped"] = True
+                    yield _sse("done", self.summary)
+                    return
+            else:
+                cap = open_capture(src, self.is_file)
             if not cap.isOpened():
-                yield _sse("fail", {"error": "Không mở được nguồn video."})
+                error = "Không mở được luồng hình YouTube. Hãy thử kết nối lại." if youtube else "Không mở được nguồn video."
+                yield _sse("fail", {"error": error})
                 return
             src_fps = cap.get(cv2.CAP_PROP_FPS) or 25
             total = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
             if not self.is_file:
                 src_fps = min(max(src_fps, 5), 30)
-            self.t_start = time.perf_counter()
 
             ok, first = cap.read()
             if not ok:
                 yield _sse("fail", {"error": "Không đọc được khung hình nào."})
                 return
+            self.t_start = time.perf_counter()
             with s.lock:
                 s.frame, s.frame_seq, s.tsec = first, 1, 1.0 / src_fps
 
@@ -457,21 +497,18 @@ class VideoSession:
             # nên không đo trước ở đây: mỗi lần đo tốn ~0,5–1,5 s và làm chậm khung đầu tiên.
             self._side = resolve_side(p, cv2.cvtColor(first, cv2.COLOR_BGR2RGB))
             s.max_side = self._side
-            self.summary.update(max_side=self._side,
-                                backend=model["backend"], model=model_id, model_label=model["label"],
-                                target_fps=p["fps"])
+            self.summary["max_side"] = self._side
 
             yield _sse("start", {"kind": self.job["kind"], "fps": src_fps,
-                                 "duration": total / src_fps if total else None,
+                                 "duration": total / src_fps if self.is_file and total else None,
                                  "target_fps": p["fps"], "max_side": self._side,
                                  "infer_ms": None, "infer_fps": None,
                                  "backend": model["backend"], "model": model_id, "model_label": model["label"],
                                  "visualization": model["visualization"]})
 
-            threads = [threading.Thread(target=self._reader, args=(cap, src_fps), daemon=True),
-                       threading.Thread(target=self._infer_worker, daemon=True)]
-            for th in threads:
-                th.start()
+            reader = threading.Thread(target=self._reader, args=(cap, src_fps), daemon=True)
+            reader.start()
+            threading.Thread(target=self._infer_worker, daemon=True).start()
 
             period = 1.0 / max(1.0, p["fps"])
             next_tick = time.perf_counter()
@@ -480,6 +517,8 @@ class VideoSession:
             max_secs = None if self.is_file else p["max_secs"]
             while not self.stop and not self.job["stop"]:
                 now = time.perf_counter()
+                if max_secs and now - self.t_start >= max_secs:
+                    break
                 if now < next_tick:
                     time.sleep(min(next_tick - now, 0.02))
                     continue
@@ -498,8 +537,6 @@ class VideoSession:
                     if eof:
                         break
                     continue
-                if max_secs and tsec > max_secs:
-                    break
                 fresh_frame = seq != sent_frame
                 fresh_result = iseq != sent_infer
                 if not fresh_frame and not fresh_result and eof and infer_done:
@@ -545,13 +582,21 @@ class VideoSession:
                 span = fps_marks[-1] - fps_marks[0]
                 self.summary["display_fps"] = round((len(fps_marks) - 1) / span, 1) if span > 0 else 0.0
             yield _sse("done", self.summary)
+        except YouTubeStreamError as e:
+            if self.job["stop"]:
+                self.summary["stopped"] = True
+                yield _sse("done", self.summary)
+            else:
+                yield _sse("fail", {"error": str(e)})
         except Exception as e:  # báo lỗi cho trình duyệt thay vì cắt luồng im lặng
             yield _sse("fail", {"error": f"Lỗi khi phân tích: {e}"})
         finally:
             self.stop = True
-            time.sleep(0.05)
-            cap.release()
-            _cleanup_job(self.job)
+            # Sau khi khởi động vòng đọc, chính luồng đó giải phóng cap khi read() kết thúc.
+            if reader is None or reader.ident is None:
+                if cap is not None:
+                    cap.release()
+                _cleanup_job(self.job)
             with _jobs_lock:
                 JOBS.pop(self.jid, None)
 

@@ -10,3 +10,4 @@ flask>=3.0
 ultralytics==8.3.228
 streamlit>=1.32  # chỉ cần cho app.py cũ
 kagglehub
+yt-dlp[default]>=2026.10.21

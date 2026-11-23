@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from video_source import LatestFrameCapture, iter_frames, open_capture
+from youtube_source import DEFAULT_YOUTUBE_URL, YouTubeStreamError, youtube_url
 
 
 class FileCapture:
@@ -153,21 +154,25 @@ class StreamingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Kiểm thử lifecycle streaming không cần nạp trọng số hay GPU.
-        with patch("crowd_core.load_model", return_value=(None, 100, {})):
+        with patch("crowd_core.InferenceEngine") as csrnet, patch("crowd_core.YoloHeadDetector") as yolo:
+            for model in (csrnet, yolo):
+                model.default_side = 1024
+                model.return_value.meta = {}
+                model.return_value.info.return_value = {"backend": "test"}
             import server
         cls.server = server
 
     def job(self):
-        self.assertAlmostEqual(self.server.read_params({})["stride"], 1 / 15)
-        return dict(params=self.server.read_params({}), kind="camera", src=0, stop=False, tmp=None)
+        return dict(params=self.server.read_params({"stride": 0}), kind="camera", src=0, stop=False, tmp=None)
 
     @staticmethod
     def decode(event):
         lines = event.splitlines()
         return lines[0], json.loads(lines[1][6:])
 
-    def test_disconnect_before_first_frame_releases_capture(self):
+    def test_disconnect_before_first_tick_releases_capture(self):
         cap = CameraCapture()
+        cap.push(1)
         with patch.object(self.server, "open_capture", return_value=cap):
             events = self.server.run_job("test", self.job())
             self.assertEqual(self.decode(next(events))[0], "event: start")
@@ -178,29 +183,73 @@ class StreamingTests(unittest.TestCase):
         cap = CameraCapture()
         cap.push(1)
         job, seen = self.job(), []
+        released = threading.Event()
 
-        def analyse(image, _params):
+        def infer(image, _side, _model):
             seen.append(int(image[0, 0, 0]))
             if len(seen) == 1:
                 for value in (2, 3, 4):
                     cap.push(value)
                 cap.wait_reads(5)
-            else:
-                job["stop"] = True
-                cap.push(None)
-            return 10, image, image
+            return 10, np.zeros((8, 8), dtype=np.float32), image
 
         with patch.object(self.server, "open_capture", return_value=cap), \
-                patch.object(self.server, "analyse", side_effect=analyse), \
-                patch.object(self.server, "to_data_url", return_value="data:image/jpeg;base64,test"):
-            events = [self.decode(e) for e in self.server.run_job("test", job)]
+                patch.object(self.server, "infer", side_effect=infer), \
+                patch.object(cap, "release", side_effect=released.set):
+            events = []
+            for event in self.server.run_job("test", job):
+                kind, data = self.decode(event)
+                events.append((kind, data))
+                if kind == "event: tick" and data["fresh"] and len(seen) == 2:
+                    job["stop"] = True
+                    cap.push(None)
+            self.assertTrue(released.wait(timeout=2))
         self.assertEqual(seen, [1, 4])
-        ticks = [data for kind, data in events if kind == "event: tick"]
-        self.assertEqual(len(ticks), 2)
-        self.assertTrue(all(t["fps"] > 0 and t["latency_ms"] >= 0 for t in ticks))
+        ticks = [data for kind, data in events if kind == "event: tick" and data["fresh"]]
+        self.assertTrue(ticks)
+        self.assertTrue(all(t["frame"] and t["infer_fps"] > 0 for t in ticks))
         self.assertEqual(events[-1][0], "event: done")
         self.assertTrue(events[-1][1]["stopped"])
+
+    def test_youtube_resolves_only_on_connection_and_releases_capture(self):
+        client = self.server.app.test_client()
+        embed = '<iframe src="https://www.youtube.com/embed/G_G8A6JU_LI"></iframe>'
+        cap = CameraCapture()
+        cap.push(1)
+        with patch.object(self.server, "resolve_youtube_live", return_value="https://stream.example/live.m3u8") as resolve, \
+                patch.object(self.server, "open_network_capture", return_value=cap) as capture:
+            response = client.post("/api/jobs", data={"source": "youtube", "url": embed})
+            self.assertEqual(response.status_code, 200)
+            resolve.assert_not_called()
+            jid = response.json["id"]
+            response = client.get(f"/api/jobs/{jid}/events", buffered=False)
+            try:
+                self.assertTrue(next(response.response).decode().startswith(":"))
+                kind, data = self.decode(next(response.response).decode())
+                self.assertEqual((kind, data["kind"], data["duration"]), ("event: start", "youtube", None))
+            finally:
+                response.close()
+        resolve.assert_called_once_with(DEFAULT_YOUTUBE_URL)
+        capture.assert_called_once_with("https://stream.example/live.m3u8", open_timeout_ms=18000, read_timeout_ms=12000)
         self.assertTrue(cap.released)
+        self.assertNotIn(jid, self.server.JOBS)
+
+    def test_youtube_connection_failure_is_reported_and_cleans_job(self):
+        client = self.server.app.test_client()
+        jid = client.post("/api/jobs", data={"source": "youtube", "url": DEFAULT_YOUTUBE_URL}).json["id"]
+        error = "Video YouTube này hiện không phát trực tiếp."
+        with patch.object(self.server, "resolve_youtube_live", side_effect=YouTubeStreamError(error)):
+            response = client.get(f"/api/jobs/{jid}/events", buffered=True)
+        self.assertEqual(self.decode(response.get_data(as_text=True).split("\n\n")[1]), ("event: fail", {"error": error}))
+        self.assertNotIn(jid, self.server.JOBS)
+
+    def test_youtube_url_normalizes_video_links_and_rejects_other_hosts(self):
+        for url in (DEFAULT_YOUTUBE_URL, "https://youtu.be/G_G8A6JU_LI?t=5", "https://www.youtube.com/live/G_G8A6JU_LI"):
+            self.assertEqual(youtube_url(url), DEFAULT_YOUTUBE_URL)
+        response = self.server.app.test_client().post("/api/jobs", data={
+            "source": "youtube", "url": "https://youtube.com.example/watch?v=G_G8A6JU_LI",
+        })
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":

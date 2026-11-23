@@ -4,7 +4,7 @@
 code/
 ├── train_csrnet_shanghaitech.ipynb  # B1–B3: tải dữ liệu, tiền xử lý, huấn luyện, đánh giá, xuất trọng số
 ├── crowd_core.py                    # Suy luận CSRNet, YOLO11s và luật cảnh báo (CrowdMonitor)
-├── server.py                        # B4: web app Flask (ảnh, video, webcam/RTSP) + API
+├── server.py                        # B4: web app Flask (ảnh, video, webcam/RTSP, YouTube Live) + API
 ├── templates/index.html             # giao diện
 ├── static/css, static/js            # style.css, app.js (không dùng framework)
 ├── static/assets/                   # nền giấy, hạt nhiễu, ảnh minh họa
@@ -33,6 +33,7 @@ python server.py          # mở http://127.0.0.1:5000
 - **Video / Camera:** hiển thị khung nguồn và khung nhận diện riêng cho video tải lên hoặc webcam/RTSP.
   Khung nhận diện cập nhật theo ảnh vừa được mô hình xử lý. Chế độ riêng tư làm mờ cả hai khung.
   Có biểu đồ số người, ngưỡng cảnh báo, nhật ký sự kiện và xuất CSV.
+- **YouTube Live:** chọn nguồn **YouTube Live**, giữ liên kết camera Phương Trần Đà Nẵng có sẵn hoặc dán liên kết video / thẻ `<iframe>` của một luồng đang phát. Đặt thời gian và bấm **Bắt đầu nhận diện trực tiếp**. App đọc HLS trên máy chủ và hiển thị khung nguồn, khung nhận diện và số đếm. Cài [Node.js 22+ hoặc Deno 2.3+](https://github.com/yt-dlp/yt-dlp/wiki/EJS) trên máy chạy Flask để yt-dlp xử lý nguồn YouTube.
 - **Cấu hình** (nút trên thanh điều hướng nổi): diện tích vùng quan sát, loại đám đông, chế độ riêng tư,
   độ phân giải suy luận, FPS hiển thị mục tiêu, ngưỡng & cửa sổ tăng đột biến, số lần đo xác nhận.
   Được lưu trong trình duyệt.
